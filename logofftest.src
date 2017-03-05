@@ -1,0 +1,82 @@
+use uo;
+include "distro/inncheck";
+include "repsys/hitlist";
+
+program logofftest(who)
+	if((who.cmdlevel > 1) || (GetObjProperty(who,"justbanned")))
+		return 0;
+	endif
+	if(getObjProperty(who, "logontime") == error) return 0; endif
+	var topxy, botxy;
+	var safelogoff := 0, f_initial_safe := 0;
+	var item, player;
+	var f_nohostiles := 1;
+	foreach mob in listHostiles(who)
+		if(mob.acctname)
+			f_nohostiles := 0;
+			break;
+		endif
+	endforeach
+
+	if(f_nohostiles)
+		foreach mob in listMobilesNearLocation(who.x, who.y, who.z, 20)
+			if(!mob.isa(POLCLASS_NPC))
+			if(IsAgressor(mob, who))
+				f_nohostiles := 0;
+				break;
+			endif
+			endif
+		endforeach
+	endif
+
+	if(Inncheck(who))
+		safelogoff := f_nohostiles;
+		f_initial_safe := 1;
+	elseif (CInt(GetObjProperty(who, "camped"))== 1)
+		EraseObjProperty(who, "camped");
+		safelogoff := f_nohostiles;
+		f_initial_safe := 1;
+	endif
+	if(!safelogoff)
+		if(who.multi.serial)
+			var house := who.multi;
+			if(who.serial == (GetObjProperty(house, "ownerserial")))
+				safelogoff := f_nohostiles;
+				f_initial_safe := 1;
+			else
+				foreach player in (GetObjProperty(house, "friendlist"))
+					if(who.serial == player)
+						safelogoff := f_nohostiles;
+						f_initial_safe := 1;
+					endif
+				endforeach
+				foreach player in (GetObjProperty(house,"coownlist"))
+					if(who.serial == player)
+						safelogoff := f_nohostiles;
+						f_initial_safe := 1;
+					endif
+				endforeach
+			endif
+		endif
+	endif
+	if(!safelogoff)
+		if(f_nohostiles)
+			if(f_initial_safe)
+				sendSysMessage(who, "ЊЈ­®ўҐ­­л© ўле®¤ ®вЄ«озс­ Ё§-§  ­ «ЁзЁп ап¤®¬ ўа Ј®ў");
+			endif
+		endif
+
+		setobjproperty(who, "#logoff", 1);
+		var realname := GetObjProperty(who, "realname");
+		if(realname)
+			SetName(who, realname );
+			EraseObjProperty(who, "realname");
+		endif
+
+		return 120;
+	elseif(safelogoff == 1)
+		return 0;
+	else
+		return safelogoff;
+	endif
+endprogram

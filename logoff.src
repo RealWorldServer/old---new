@@ -1,0 +1,129 @@
+use util;
+use math;
+include "prefix";
+include "distro/math";
+include "global/eventid";
+include ":party:party";
+include "npc/template";
+include ":stealing:undisguise";
+include "global/antiharm";
+
+const EVID_UNEQUIP   := 0x123456;
+const EVID_DISCHARGE := 0x123457;
+
+program onlogoff(who)
+	start_script(":ratings:keeplist", {who,0});
+
+	var apid := getobjproperty(who, "#apid");
+	if(apid) getprocess(apid).kill(); endif
+
+	var cbpid := getobjproperty(who, "#cbpid");
+	if(cbpid) getprocess(cbpid).kill(); endif
+
+	PartySystem_OnPlayerLogoff(who);
+	EraseObjProperty(who, "#QuestArrowDest");
+	if(who.cmdlevel > 0)
+		var stafflist := GetGlobalProperty("#rw_stafflist");
+		if(!stafflist) stafflist := array; endif
+
+		var idx;
+		for(idx := 1; idx <= stafflist.size(); idx := idx+1)
+			if(stafflist[idx] == who.serial)
+				stafflist.erase(idx);
+				break;
+			endif
+		endfor
+
+		SetGlobalProperty("#rw_stafflist", stafflist);
+	endif
+
+	var realname := GetObjProperty(who, "realname");
+	if(realname)
+		SetName(who, realname );
+		EraseObjProperty(who, "realname");
+	endif
+	if(getobjproperty(who, "realbeard"))
+		undisguise(who);
+	endif
+
+	var nm := who.name;
+	if(find(nm, "Lord ", 1) == 1 || find(nm, "Lady ", 1))
+		nm := cascz(nm);
+		nm.reverse();
+		nm.shrink(len(nm)-5);
+		nm.reverse();
+		nm := cchrz(nm);
+	endif
+	SetName(who, nm);
+
+	//to fix for 1-1-1 vitals
+	SetObjProperty(who, "LogoffVitals", {GetHp(who),GetMana(who),GetStamina(who)});
+	
+	EraseObjProperty(who,"IsCasting");
+	EraseObjProperty(who,"IsMining");
+	EraseObjProperty(who,"LastPeace");
+	EraseObjProperty(who,"LastMusic");
+	EraseObjProperty(who,"#ReactiveArmor");
+	EraseObjProperty(who,"#activation");
+	eraseobjproperty(who, "#ResMenu");
+
+
+	var acct := FindAccount(who.acctname);
+	acct.setprop("LastLogin", readGameclock());
+
+	/*var sessiontime := ReadGameClock() - GetObjProperty(who,"logontime");
+	var timer := GetObjProperty(who,"onlinetimer");
+	if(!timer)
+		timer := 0;
+	endif
+	SetObjProperty(who,"onlinetimer",timer+sessiontime);*/
+
+	var sessiontime;
+	if(GetObjProperty(who,"lastonlinetimer"))
+	sessiontime  := ReadGameClock() - GetObjProperty(who,"lastonlinetimer");
+	else
+	sessiontime  := ReadGameClock() - GetObjProperty(who,"logontime");
+	endif
+	var timer := GetObjProperty(who,"onlinetimer");
+	if(!timer)
+		timer := 0;
+	endif
+	SetObjProperty(who,"onlinetimer",timer+sessiontime);
+	EraseObjProperty(who,"lastonlinetimer");
+
+	EraseObjProperty(who,"LoggedIn");
+	RemoveMods(who);
+	var mount := GetEquipmentByLayer(who, 25 );
+	var npc := systemFindObjectBySerial(getObjProperty(mount, "serial"));
+
+	if(mount)
+		if(getObjProperty(mount,"summoned") && npc_short(npc.npctemplate)!="prize_horse")
+			ApplyRawDamage(npc, 2000);
+			DestroyItem(mount);
+		else
+			setObjProperty(npc, "onhold", 1);
+		endif
+	endif
+
+	if(spec_harm_zone(who.x, who.y))
+		MoveCharacterToLocation(who, 5148, 354, 15);
+	endif
+endprogram
+
+function RemoveMods(who)
+	var eqp := GetObjProperty(who, "EquipTimers");
+	var pid;
+	foreach item in ListEquippedItems(who)
+		pid := GetObjProperty(item, "pid");
+		if(pid)
+			pid := getprocess(pid);
+			if(pid)
+				var k := struct;
+				k.+type := EVID_UNEQUIP;
+				pid.sendevent(k);
+			endif
+		endif
+	endforeach
+	EraseObjProperty(who, "EquipTimers");
+	return;
+endfunction

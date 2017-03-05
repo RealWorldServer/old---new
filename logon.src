@@ -1,0 +1,429 @@
+use uo;
+use os;
+use util;
+use math;
+use cfgfile;
+use file;
+include "prefix";
+include "global/eventid";
+include "global/unicode";
+include "distro/myutil";
+include "repsys/noto";
+include "repsys/reportmurder";
+include "features/skilllocks";
+include "util/enterarea";
+include "internal/alertlog";
+include "internal/slots";
+include "internal/ipfilter";
+include "internal/propclean";
+include "internal/gmmsg";
+include "util/newbie";
+include "util/formatseconds";
+include ":combat:equip";
+include ":rwctf2:rwctfmini";
+
+var bow_graphics := {0x13b2, 0xf4f, 0x13fd};
+
+program onlogon(who)
+	prop_cleanup_logon(who);
+	eraseobjproperty(who, "#logoff");
+	eraseobjproperty(who, "#ResMenu");
+
+	if(check_char_slots(who)) return; endif
+
+	if(getObjProperty(who, "logontime") == error)
+		var nickdb := getGlobalProperty("nickname_db");
+		if(nickdb)
+			var nick := lower(who.name);
+			while(find(nick, " ", 1) == 1) nick := nick[2,len(nick)-1]; endwhile
+			while(find(nick, " ", len(nick)) == len(nick)) nick := nick[1,len(nick)-1]; endwhile
+
+			if(nickdb[nick] == 1)
+				sendSysMessage(who, "Это имя уже используется другим игроком, создайте нового персонажа и выберите другое имя");
+				disconnectClient(who);
+				return;
+			else
+				nickdb[nick] := 1;
+				setGlobalProperty("nickname_db", nickdb);
+				start_script(":scripts:skillsup", who);
+			endif
+			namecheck(who);
+		endif
+	endif
+
+	if(!ipfilter_chk(who)) disconnectclient(who); return; endif
+	
+  	if(who.cmdlevel > 1)
+  	  //SendSysMessage(who, "Podgotovka dly vvoda paroly!");
+    	  start_script(":scripts:gmenter", who);
+  	endif
+
+	
+ 
+
+	SendPacket(who, "B90001");
+
+	if(getequipmentbylayer(who,1).graphic in bow_graphics)
+		start_script(":hooks:archertimer", who);
+	endif
+
+	start_script(":rwcombat:combatgain", who);
+	start_script(":rwcombat:combat", who);
+	start_script(":ratings:keeplist", {who,1});
+	start_script(":statmods:manager", who);
+	start_script(":cooking:hunger", who);
+	start_script(":timer:myCity", who);
+	send_entered_area(who);
+
+	var acct := who.acct;
+	
+//	if(who.cmdlevel < 1)
+//	  start_script(":scripts:visit_check", {who,acct}); 
+//	endif
+
+	var f_jail := 0;
+	if(who.x >= 5272 && who.x<=5310 && who.y >=1160 && who.y <= 1190)
+		f_jail := 1;
+	endif
+
+	if(who.frozen && !f_jail) //(CInt(acct.getprop("Release")) < 1))
+		who.frozen := 0;
+	endif
+
+	if(!f_jail)
+		var toxyz := getobjproperty(who, "#stuck_move_to_xyz");
+		movecharactertolocation(who, toxyz[1], toxyz[2], toxyz[3]);
+		eraseobjproperty(who, "#stuck_move_to_xyz");
+	endif
+
+	var stafflist := GetGlobalProperty("#rw_stafflist");
+
+	if(f_jail && (CInt((who.acct).getprop("Release")) < ReadGameClock()))
+
+		foreach ss in stafflist
+			SendSysMessage(systemfindobjectbyserial(ss), "Выпускаем " + who.name + " из тюрьмы..");
+		endforeach
+
+		who.frozen := 0;
+
+		MoveCharacterToLocation(who, 5296, 1174, 0);
+		(who.acct).eraseprop("Release"); 
+		SendSysMessage(who, "Вы свободны");
+
+	elseif(f_jail && (CInt((who.acct).getprop("Release")) > ReadGameClock()))
+
+		SendSysMessage(who, "До выхода на свободу: " + FormatSeconds((((who.acct).getprop("Release") - ReadGameClock()) + 1)),3,90);
+		SendSysMessage(who, "Вас посадили за: " + cstr(getobjproperty(who, "JailReason")),3,90);
+
+		if(!who.frozen)
+		foreach ss in stafflist
+			SendSysMessage(systemfindobjectbyserial(ss), "Пресечена попытка побега " + who.name + " из тюрьмы..");
+		endforeach
+
+		who.frozen := 1;
+		endif
+
+	endif
+
+		if(!stafflist)
+			stafflist := array;
+		endif
+
+	if(who.cmdlevel > 0)
+		foreach sm in stafflist
+			if(getobjproperty(sm, "StaffLogNotify"))
+				SendSysMessage(sm, "Staff member " + who.name + " logged in");
+			endif
+		endforeach
+
+		if(!(who in (stafflist)))
+			stafflist.append(who.serial);
+		endif
+
+		SetGlobalProperty("#rw_stafflist", stafflist);
+
+		grantprivilege(who, "freemove");
+		who.enable("freemove");
+	endif
+
+	
+
+	var lastlogintime := acct.getprop("LastLoginTime");
+	var lastloginip := acct.getprop("LastIP");
+	var rgc := ReadGameClock();
+	
+	if(!acct.getprop("gar"))
+	   SendSysMessage(who, "Вы получили 500 гп.");
+	   var gold := CreateItemInBackpack(who, 0xeed, 500);
+	   gold.newbie := 1;
+	   acct.setprop("gar", "yes");
+	endif
+
+
+	acct.setprop("LastIP", who.ip);
+	acct.setprop("LastLogin", ReadGameClock());
+	acct.setprop("LastLoginTime", CDateTimeStr(polcore().systime+3600*3));
+	/*var frozenacct := acct.getprop("FrozenAccount");
+	if(frozenacct == "Yes")
+			acct.SetProp("FrozenAccount","No");
+	endif*/
+	SetObjProperty(who,"logontime",ReadGameClock());
+	EraseObjProperty(who, "#poisonisrunning");
+	EraseObjProperty(who, "IsMeditating");
+
+	SetObjProperty(who,"LoggedIn", 1);
+		
+	start_script(":scripts:cursorhue", who);
+	if(who.guildid)
+		if(findGuild(who.guildid).getprop("Pacifists")==error)
+			start_script(":guildwar:townnotify", who);
+		endif
+	endif
+
+	if(getobjproperty(who, "ReportMenu"))
+		start_script(":scripts:loginreport", who);
+	endif
+
+	if(who.cmdlevel < 1)
+		RevokePrivilege(who, "hearghosts");
+	else
+		var oldpack := who.backpack;
+		if(oldpack.objtype != 0x966c)
+			MoveItemToLocation(oldpack, 5851, 1161, 0, MOVEITEM_FORCELOCATION);
+			var newpack := CreateItemAtLocation(5851, 1162, 0, 0x966c, 1);
+			EquipItem(who, newpack);
+			foreach thing in ListRootItemsInContainer(oldpack)
+				MoveItemToContainer(thing, newpack);
+			endforeach
+		endif
+	endif
+	var mount := GetEquipmentByLayer(who, 25 );
+	if(mount)
+		var animal := SystemFindObjectBySerial(CInt(GetObjProperty(mount,"serial")));
+		if(animal)
+			EraseObjProperty(animal,"onhold");
+		elseif(who.cmdlevel<1 && !GetObjProperty(who,"EtherealMount"))
+			DestroyItem(mount);
+		endif
+	endif
+
+	var nkarma := CStr(GetObjProperty(who, "ModKarma"));
+	var nfame := CStr(GetObjProperty(who, "ModFame"));
+	if(nfame)
+		var ofame := GetObjProperty(who, "Fame");
+		SendGainMessage(who, "Fame", CInt(nfame));
+
+		var newf := CInt(ofame) + CInt(nfame);
+		if(newf > MAX_FAME) newf := MAX_FAME; endif
+
+		SetObjProperty(who, "Fame", newf);
+		EraseObjProperty(who, "ModFame");
+		var karma   := CInt(GetObjProperty(who, "Karma"));
+		var fame    := CInt(GetObjProperty(who, "Fame"));
+		SetNotoTitle(who, karma, fame);
+	endif
+	if(nkarma)
+		var okarma := GetObjProperty(who, "Karma");
+		SendGainMessage(who, "Karma", CInt(nkarma));
+
+		var newk := CInt(okarma) + CInt(nkarma);
+		if(newk > MAX_KARMA) newk := MAX_KARMA;
+		elseif(newk < MIN_KARMA) newk := MIN_KARMA; endif
+
+		SetObjProperty(who, "Karma", newk);
+		EraseObjProperty(who, "ModKarma");
+		var karma   := CInt(GetObjProperty(who, "Karma"));
+		var fame    := CInt(GetObjProperty(who, "Fame"));
+		SetNotoTitle(who, karma, fame);
+	endif
+	var whopack := who.backpack;
+	if(!GetObjProperty(whopack, "Owner"))
+		SetObjProperty(whopack, "Owner", who.serial);
+	endif
+	var staff;
+	var ppl := EnumerateOnlineCharacters();
+	var poisonlevel := CInt(GetObjProperty(who, "poison_level"));
+	if(GetObjProperty(who,"poisonloops"))
+		start_script(":spells:poisonDamage", who);
+	endif
+	SetObjProperty(who, "LastLog", ReadGameClock() );
+	if(GetObjProperty(who,"poly"))
+		who.graphic := who.objtype;
+		who.color := who.truecolor;
+		EraseObjProperty(who,"poly");
+	endif
+
+	/*if(GetObjProperty(who, "StealthLogin"))
+		return;
+	endif*/
+
+	var onlinecnt := len(ppl);
+	foreach staff in ppl
+		if(staff.cmdlevel > 0)
+			if(CInt(GetObjProperty(staff, "LogNotify")) == 1 && staff.cmdlevel >= who.cmdlevel)
+				SendSysMessage(staff, CStr(who.name) + " (Account name: " + CStr(who.acctname) + ") has logged on.  IP: " + CStr(who.ip) );
+			endif
+			onlinecnt := onlinecnt-1;
+		endif
+	endforeach
+
+	if((who.graphic == 402 || who.graphic == 403) && GetHp(who) > 0)
+		who.graphic := who.objtype;
+		AlertLog(who.name+"/"+who.acctname+" maybe cheater! use graphic 402");
+	endif
+
+	if(getglobalproperty("lastnewsnum") != getobjproperty(who, "lastseennews"))
+		start_script(":motd:textcmd/player/news", who);
+		SetObjproperty(who, "lastseennews", getglobalproperty("lastnewsnum"));
+	endif
+
+	SendSysMessage(who, "Добро пожаловать на RealWorld",3,100);
+	SendSysMessage(who, "В данный момент на сервере "+onlinecnt+" игроков",3,100);
+
+	if(lastloginip != who.ip)
+		if(lastlogintime)
+		SendSysmessage(who, "В прошлый раз вы заходили с другого IP адреса", 3, 33);
+		sendSysMessage(who, "Последний заход с "+lastloginip +" - " + lastlogintime, 3, 100); 
+		endif
+	else
+		if(lastlogintime) sendSysMessage(who, "Последний заход с "+lastloginip +" - " + lastlogintime, 3, 100); endif
+	endif
+
+	if(GetGlobalProperty("TimeOfPiece"))
+		SendSysMessage(who, "Внимание: возможна телепортация на арену.", 0x3, 90);
+	endif
+
+	if(GetGlobalProperty("QuestTimeOfPiece"))
+		SendSysMessage(who, "В мире запрещено лутить трупы", 0x3, 90);
+	endif
+
+	if(who.cmdlevel)
+		var gmpages := 0;
+		gmpages := len(GetGlobalProperty("gmpages"));
+		SendSysMessage(who, "Количество необработанных ГмПейджей: "+ gmpages, 0x3, 55);
+			if(who.cmdlevel > 4)
+				var staff := len(GetGlobalProperty("#rw_stafflist"))-1;
+				SendSysMessage(who, "Стафф онлайн: "+ staff, 0x3, 55);
+			endif	
+	/*else	
+		var lastpasschange := acct.getprop("LastPassChange");
+	
+		if(!lastpasschange || lastpasschange + 3600 * 24 * 30 < ReadGameClock())
+			SendSysMessage(who, "Вы не меняли пароль более 30 дней.", 0x3, 33);
+		endif*/
+		
+	endif
+
+	//sendSysMessage(who, "RealWorld / " + polcore().verstr + ", players : "+onlinecnt, 3, 72);
+	//if(lastlogintime) sendSysMessage(who, "Last login from "+lastloginip +" at " + lastlogintime, 3, 72); endif
+	housecheck(who);
+
+	RecalcVitals(who);//Plugin, fix
+	var sv := GetObjProperty(who, "LogoffVitals");
+	if(sv && Len(sv)==3)
+		SetHp(who, sv[1]);
+		SetMana(who, sv[2]);
+		SetStamina(who, sv[3]);
+	endif
+	EraseObjProperty(who, "LogoffVitals");
+
+	if(getObjProperty(who, "#oldstam"))
+		setVital(who, VITALID_STAMINA, getObjProperty(who, "#oldstam"));
+		eraseObjProperty(who, "#oldstam");
+	endif
+
+	////Проверка на уплату штрафа
+	var fine := CInt(GetObjProperty(who,"shtraf"));
+	if(fine > 0)
+		start_script(":fine:fines", who);	
+	endif
+
+
+	var amsg := getObjProperty(who, "AsyncMsg");
+	if(amsg)
+		eraseObjProperty(who, "AsyncMsg");
+		var gm := systemfindobjectbyserial(getobjproperty(who, "AsyncMsgFrom"), 1);
+		eraseObjProperty(who, "AsyncMsgFrom");
+		GMMessage(gm, who, amsg);
+	endif
+
+	var linked := acct.getprop("linked");
+		if(!linked)
+			start_script(":scripts:nolinked", who);
+		endif
+
+	/*if(is_in_ctf(who))
+		SendSysMessage(who, "Вы слишком долго отсутствовали в игре, поэтому не можете продолжить участие в турнире");
+		MoveCharacterToLocation(who, 5190, 373, 15);
+	endif*/
+
+endprogram
+
+
+function housecheck(who)
+	if(!who.multi.serial)
+		return;
+	endif
+	var house := SystemFindObjectBySerial(who.multi.serial);
+	var secure := 1;
+	if ((GetObjProperty( house, "ownerserial" ) == who.serial) || (GetObjProperty( house, "owneracct" ) == who.acctname))
+		secure := 0;
+	else
+		var coownerinfo := GetObjProperty(house,"coownlist");
+		if(who.serial in coownerinfo)
+			secure := 0;
+		else
+			var friendinfo := GetObjProperty(house,"friendlist");
+			if(who.serial in friendinfo)
+				secure := 0;
+			endif
+		endif
+	endif
+	if(secure == 1)
+		if(house.isa(POLCLASS_BOAT))
+			return;
+		endif
+		var ss := GetObjProperty(house, "signserial");
+		var  sign := SystemFindObjectBySerial(ss);
+		MoveCharacterToLocation(who, sign.x, sign.y, sign.z, MOVECHAR_FORCELOCATION);
+	endif
+endfunction
+
+
+function namecheck(who)
+	var words := SplitWords(who.name);
+	var namesymbols := CAscZ(who.name);
+	var badwords := {"GM", "Seer", "Couselor", "Admin", "Gamemaster", "Lord"};
+	var badsymbols := {44, 91, 93, 40, 41, 49, 50, 51, 52, 53, 54, 55, 56, 57, 48};
+	var acct := who.acct;
+	var ac := findaccount(acct);
+	foreach name in words
+		for i:=1 to cINT(len(badwords))
+		if(name == badwords[i])
+			//Наказание
+			SendSysMessage(who, "Нельзя использовать в имени " + name + ". Аккаунт будет автоматически забанен", 0x3, 33);
+			logtofile("::log/players/bad_names.log", "Bad name: " + who.name + " " + who.acctname);
+			sleep(3);
+			ac.ban();
+			disconnectClient(who);
+			break;
+		endif
+		endfor
+	endforeach
+	//SendSysMessage(who, "Массив символов имени: "+ namesymbols );
+	foreach symbol in namesymbols
+		for i:=1 to cINT(len(badsymbols))
+		if(symbol == badsymbols[i])
+			//Наказание
+			SendSysMessage(who, "Нельзя использовать в имени " + CChr(symbol) + ". Аккаунт будет автоматически забанен", 0x3, 33);
+			logtofile("::log/players/bad_names.log", "Bad name: " + who.name + " " + who.acctname);
+			sleep(3);
+			ac.ban();
+			disconnectClient(who);
+			break;
+		endif
+		endfor
+	endforeach
+endfunction
+
+
