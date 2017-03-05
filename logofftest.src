@@ -3,6 +3,12 @@ include "distro/inncheck";
 include "repsys/hitlist";
 
 program logofftest(who)
+
+	//by Akaki for dyebook Script
+	if(GetObjProperty(who, "#usedDyesBookItem"))
+		start_script(":prizes:removeUsedDyesBookItem", who);
+	endif
+
 	if((who.cmdlevel > 1) || (GetObjProperty(who,"justbanned")))
 		return 0;
 	endif
@@ -59,10 +65,11 @@ program logofftest(who)
 			endif
 		endif
 	endif
+
 	if(!safelogoff)
 		if(f_nohostiles)
 			if(f_initial_safe)
-				sendSysMessage(who, "ЊЈ­®ўҐ­­л© ўле®¤ ®вЄ«озс­ Ё§-§  ­ «ЁзЁп ап¤®¬ ўа Ј®ў");
+				sendSysMessage(who, "Мгновые выход отключен из-за наличия рядом врагов");
 			endif
 		endif
 
@@ -79,4 +86,5 @@ program logofftest(who)
 	else
 		return safelogoff;
 	endif
+
 endprogram

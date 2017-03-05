@@ -65,8 +65,7 @@ program onlogoff(who)
 	EraseObjProperty(who,"LastMusic");
 	EraseObjProperty(who,"#ReactiveArmor");
 	EraseObjProperty(who,"#activation");
-	eraseobjproperty(who, "#ResMenu");
-
+	EraseObjproperty(who, "#ResMenu");
 
 	var acct := FindAccount(who.acctname);
 	acct.setprop("LastLogin", readGameclock());
@@ -108,6 +107,7 @@ program onlogoff(who)
 	if(spec_harm_zone(who.x, who.y))
 		MoveCharacterToLocation(who, 5148, 354, 15);
 	endif
+
 endprogram
 
 function RemoveMods(who)

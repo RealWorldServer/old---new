@@ -25,6 +25,7 @@ include ":rwctf2:rwctfmini";
 var bow_graphics := {0x13b2, 0xf4f, 0x13fd};
 
 program onlogon(who)
+
 	prop_cleanup_logon(who);
 	eraseobjproperty(who, "#logoff");
 	eraseobjproperty(who, "#ResMenu");
@@ -158,7 +159,6 @@ program onlogon(who)
 	   gold.newbie := 1;
 	   acct.setprop("gar", "yes");
 	endif
-
 
 	acct.setprop("LastIP", who.ip);
 	acct.setprop("LastLogin", ReadGameClock());
@@ -351,6 +351,11 @@ program onlogon(who)
 		if(!linked)
 			start_script(":scripts:nolinked", who);
 		endif
+
+	//by Akaki for dyebook Script
+	if(GetObjProperty(who, "#usedDyesBookItem"))
+		start_script(":prizes:removeUsedDyesBookItem", who);
+	endif
 
 	/*if(is_in_ctf(who))
 		SendSysMessage(who, "Вы слишком долго отсутствовали в игре, поэтому не можете продолжить участие в турнире");
